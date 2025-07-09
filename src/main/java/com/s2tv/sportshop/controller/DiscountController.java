@@ -6,6 +6,7 @@ import com.s2tv.sportshop.dto.response.ApiResponse;
 import com.s2tv.sportshop.dto.response.DiscountResponse;
 import com.s2tv.sportshop.filter.UserPrincipal;
 import com.s2tv.sportshop.service.DiscountService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -15,9 +16,9 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/discount")
+@RequiredArgsConstructor
 public class DiscountController {
-    @Autowired
-    private DiscountService discountService;
+    private final DiscountService discountService;
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/create")
@@ -48,7 +49,7 @@ public class DiscountController {
     }
 
     @PreAuthorize("hasRole('ADMIN')")
-    @PutMapping("/update/{id}")
+    @PatchMapping("/update/{id}")
     public ApiResponse<DiscountResponse> updateDiscount(@RequestBody DiscountUpdateRequest discountUpdateRequest, @PathVariable String id){
         return ApiResponse.<DiscountResponse>builder()
                 .EC(0)
@@ -68,7 +69,7 @@ public class DiscountController {
     }
 
     @PreAuthorize("isAuthenticated()")
-    @GetMapping("/get-for-order")
+    @PostMapping("/get-for-order")
     public ApiResponse<List<DiscountResponse>> getDiscountForOrder(@AuthenticationPrincipal UserPrincipal userPrincipal, @RequestBody List<String> productIds) {
         String userId = userPrincipal.getUser().getId();
 

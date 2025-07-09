@@ -10,8 +10,8 @@ import lombok.experimental.FieldDefaults;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CategoryUpdateResponse {
-    CategoryGender category_gender;
-    String category_type;
-    String category_parent_id;
-    int category_level;
+    CategoryGender categoryGender;
+    String categoryType;
+    String categoryParentId;
+    Integer categoryLevel;
 }

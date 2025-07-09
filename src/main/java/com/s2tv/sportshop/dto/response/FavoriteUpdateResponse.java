@@ -11,6 +11,6 @@ import java.util.List;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class FavoriteUpdateResponse {
-    String user_id;
+    String userId;
     List<String> products;
 }

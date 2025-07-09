@@ -8,44 +8,53 @@ import com.s2tv.sportshop.dto.request.ProductGetAllRequest;
 import com.s2tv.sportshop.dto.request.ProductUpdateRequest;
 import com.s2tv.sportshop.dto.response.ProductCreateResponse;
 import com.s2tv.sportshop.dto.response.ProductGetAllResponse;
+import com.s2tv.sportshop.dto.response.ProductGetDetailsResponse;
 import com.s2tv.sportshop.dto.response.ProductUpdateResponse;
 import com.s2tv.sportshop.exception.AppException;
 import com.s2tv.sportshop.exception.ErrorCode;
 import com.s2tv.sportshop.mapper.ProductMapper;
-import com.s2tv.sportshop.model.Category;
-import com.s2tv.sportshop.model.Color;
-import com.s2tv.sportshop.model.Product;
+import com.s2tv.sportshop.model.*;
 import com.s2tv.sportshop.repository.CategoryRepository;
+import com.s2tv.sportshop.repository.OrderRepository;
 import com.s2tv.sportshop.repository.ProductRepository;
+import com.s2tv.sportshop.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
 public class ProductService {
 
-    @Autowired
-    private ProductRepository productRepository;
+    private final ProductRepository productRepository;
 
-    @Autowired
-    private CategoryRepository categoryRepository;
+    private final CategoryRepository categoryRepository;
 
-    @Autowired
-    private CloudinaryService cloudinaryService;
+    private final UserRepository userRepository;
 
-    @Autowired
-    private ProductMapper productMapper;
+    private final OrderRepository orderRepository;
 
-    @Autowired
-    private MongoTemplate mongoTemplate;
+    private final CloudinaryService cloudinaryService;
+
+    private final ProductMapper productMapper;
+
+    private final MongoTemplate mongoTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private static final String PYTHON_API_URL = "http://localhost:8000/recommend";
+
+    private final RestTemplate restTemplate = new RestTemplate();
 
     public ProductCreateResponse createProduct(
             ProductCreateRequest productRequest,
@@ -56,11 +65,11 @@ public class ProductService {
 
         Product product = productMapper.toProduct(productRequest);
         product.setColors(colors);
-        product.setProduct_selled(0);
+        product.setProductSelled(0);
 
-        Category category = categoryRepository.findById(productRequest.getProduct_category())
+        Category category = categoryRepository.findById(productRequest.getProductCategory())
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
-        product.setProduct_category(category.getId());
+        product.setProductCategory(category.getId());
 
         Map<String, List<String>> uploadedFiles = uploadImages(product, multipartRequest);
         mapImagesToProduct(product, uploadedFiles);
@@ -71,7 +80,7 @@ public class ProductService {
 
         List<Double> allPrices = product.getColors().stream()
                 .flatMap(color -> color.getVariants().stream())
-                .map(variant -> variant.getVariant_price())
+                .map(variant -> variant.getVariantPrice())
                 .toList();
 
         // Tìm giá thấp nhất
@@ -85,11 +94,11 @@ public class ProductService {
         // Tính tổng số lượng tồn kho
         product_countInStock = product.getColors().stream()
                 .flatMap(color -> color.getVariants().stream())
-                .mapToInt(variant -> variant.getVariant_countInStock())
+                .mapToInt(variant -> variant.getVariantCountInStock())
                 .sum();
 
-        product.setProduct_price(product_price);
-        product.setProduct_countInStock(product_countInStock);
+        product.setProductPrice(product_price);
+        product.setProductCountInStock(product_countInStock);
 
         Product savedProduct = productRepository.save(product);
         return productMapper.toProductCreateResponse(savedProduct);
@@ -123,27 +132,27 @@ public class ProductService {
             updateProductImages(existingProduct, uploadFiles);
         }
 
-        double product_price = existingProduct.getProduct_price();
+        double product_price = existingProduct.getProductPrice();
         List<Double> allPrices = existingProduct.getColors().stream()
                 .flatMap(color -> color.getVariants().stream())
-                .map(variant -> variant.getVariant_price())
+                .map(variant -> variant.getVariantPrice())
                 .toList();
 
         if(!allPrices.isEmpty()) {
             product_price = allPrices.stream()
                     .mapToDouble(x -> x)
                     .min()
-                    .orElse(existingProduct.getProduct_price());
+                    .orElse(existingProduct.getProductPrice());
         }
 
-        int product_countInStock = existingProduct.getProduct_countInStock();
+        int product_countInStock = existingProduct.getProductCountInStock();
         product_countInStock = existingProduct.getColors().stream()
                 .flatMap(color -> color.getVariants().stream())
-                .mapToInt(variant -> variant.getVariant_countInStock())
+                .mapToInt(variant -> variant.getVariantCountInStock())
                 .sum();
 
-        existingProduct.setProduct_price(product_price);
-        existingProduct.setProduct_countInStock(product_countInStock);
+        existingProduct.setProductPrice(product_price);
+        existingProduct.setProductCountInStock(product_countInStock);
 
         Product saveProduct = productRepository.save(existingProduct);
         return productMapper.toProductUpdateResponse(saveProduct);
@@ -154,20 +163,20 @@ public class ProductService {
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
         // Xóa ảnh chính sản phẩm
-        if(existingProduct.getProduct_img() != null && !existingProduct.getProduct_img().isEmpty()) {
-            cloudinaryService.deleteFile(existingProduct.getProduct_img(), "image");
+        if(existingProduct.getProductImg() != null && !existingProduct.getProductImg().isEmpty()) {
+            cloudinaryService.deleteFile(existingProduct.getProductImg(), "image");
         }
 
         // Xóa ảnh từng biển thể
         if(existingProduct.getColors() != null) {
             for(Color color : existingProduct.getColors()) {
                 if(color.getImgs() != null) {
-                    if(color.getImgs().getImg_main() != null && !color.getImgs().getImg_main().isEmpty()) {
-                        cloudinaryService.deleteFile(color.getImgs().getImg_main(), "image");
+                    if(color.getImgs().getImgMain() != null && !color.getImgs().getImgMain().isEmpty()) {
+                        cloudinaryService.deleteFile(color.getImgs().getImgMain(), "image");
                     }
 
-                    if(color.getImgs().getImg_subs() != null && !color.getImgs().getImg_subs().isEmpty()) {
-                        for(String subImg : color.getImgs().getImg_subs()) {
+                    if(color.getImgs().getImgSubs() != null && !color.getImgs().getImgSubs().isEmpty()) {
+                        for(String subImg : color.getImgs().getImgSubs()) {
                             cloudinaryService.deleteFile(subImg, "image");
                         }
                     }
@@ -178,11 +187,16 @@ public class ProductService {
         productRepository.delete(existingProduct);
     }
 
-    public Product getDetailsProduct(String productId) {
+    public ProductGetDetailsResponse getDetailsProduct(String productId) {
         Product existingProduct = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        return existingProduct;
+        Category category = categoryRepository.findById(existingProduct.getProductCategory())
+                .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+
+        ProductGetDetailsResponse response = productMapper.toProductGetDetailsResponse(existingProduct);
+        response.setProductCategory(category);
+        return response;
     }
 
     public ProductGetAllResponse getAllProduct(ProductGetAllRequest request) {
@@ -190,24 +204,24 @@ public class ProductService {
         List<Criteria> andCriteria = new ArrayList<>();
 
         // category_gender
-        List<String> genderFilter = (request.getCategory_gender() != null && !request.getCategory_gender().isEmpty())
-                ? request.getCategory_gender()
+        List<String> genderFilter = (request.getCategoryGender() != null && !request.getCategoryGender().isEmpty())
+                ? request.getCategoryGender()
                 : List.of("Nam", "Nữ", "Unisex");
 
         // Xử lý categoryIds
         Set<String> categoryIds = new HashSet<>();
         if ((genderFilter.size() != 3) &&
                 (request.getCategory() == null || request.getCategory().isEmpty()) &&
-                (request.getCategory_sub() == null || request.getCategory_sub().isEmpty())) {
+                (request.getCategorySub() == null || request.getCategorySub().isEmpty())) {
             List<Category> categories = categoryRepository.findByCategoryGenderIn(genderFilter);
             categories.forEach(cat -> categoryIds.add(cat.getId()));
         }
 
         // Xử lý sub-category mapping
         List<Category> subCategories = new ArrayList<>();
-        if (request.getCategory_sub() != null && !request.getCategory_sub().isEmpty()) {
+        if (request.getCategorySub() != null && !request.getCategorySub().isEmpty()) {
             subCategories = categoryRepository.findByCategoryTypeInAndCategoryGenderIn(
-                    request.getCategory_sub(), genderFilter);
+                    request.getCategorySub(), genderFilter);
         }
 
         Map<String, List<String>> parentToSubs = new HashMap<>();
@@ -215,7 +229,7 @@ public class ProductService {
             parentToSubs.computeIfAbsent(subCat.getCategoryParentId(), k -> new ArrayList<>()).add(subCat.getId());
         }
 
-        if (request.getCategory() == null && request.getCategory_sub() != null) {
+        if (request.getCategory() == null && request.getCategorySub() != null) {
             for (Category subCat : subCategories) {
                 categoryIds.add(subCat.getId());
             }
@@ -239,26 +253,26 @@ public class ProductService {
         }
 
         if (!categoryIds.isEmpty()) {
-            andCriteria.add(Criteria.where("product_category").in(categoryIds));
+            andCriteria.add(Criteria.where("productCategory").in(categoryIds));
         }
 
-        if (request.getPrice_min() != null || request.getPrice_max() != null) {
-            Criteria priceCriteria = Criteria.where("product_price");
-            if (request.getPrice_min() != null) {
-                priceCriteria = priceCriteria.gte(request.getPrice_min());
+        if (request.getPriceMin() != null || request.getPriceMax() != null) {
+            Criteria priceCriteria = Criteria.where("productPrice");
+            if (request.getPriceMin() != null) {
+                priceCriteria = priceCriteria.gte(request.getPriceMin());
             }
-            if (request.getPrice_max() != null) {
-                priceCriteria = priceCriteria.lte(request.getPrice_max());
+            if (request.getPriceMax() != null) {
+                priceCriteria = priceCriteria.lte(request.getPriceMax());
             }
             andCriteria.add(priceCriteria);
         }
 
-        if (request.getProduct_color() != null && !request.getProduct_color().isEmpty()) {
-            andCriteria.add(Criteria.where("colors.color_name").in(request.getProduct_color()));
+        if (request.getProductColor() != null && !request.getProductColor().isEmpty()) {
+            andCriteria.add(Criteria.where("colors.colorName").in(request.getProductColor()));
         }
 
-        if (request.getProduct_brand() != null && !request.getProduct_brand().isEmpty()) {
-            andCriteria.add(Criteria.where("product_brand").in(request.getProduct_brand()));
+        if (request.getProductBrand() != null && !request.getProductBrand().isEmpty()) {
+            andCriteria.add(Criteria.where("productBrand").in(request.getProductBrand()));
         }
 
         if (!andCriteria.isEmpty()) {
@@ -266,13 +280,103 @@ public class ProductService {
         }
 
         Query query = new Query(criteria);
-        List<Product> products = mongoTemplate.find(query, Product.class);
+        List<Product> rawProducts = mongoTemplate.find(query, Product.class);
+
+        Set<String> categoryIdsUsed = rawProducts.stream()
+                .map(Product::getProductCategory)
+                .collect(Collectors.toSet());
+
+        Map<String, Category> categoryMap = categoryRepository.findAllById(categoryIdsUsed).stream()
+                .collect(Collectors.toMap(Category::getId, c -> c));
+
+        List<ProductGetDetailsResponse> products = rawProducts.stream().map(product -> {
+            ProductGetDetailsResponse response = productMapper.toProductGetDetailsResponse(product);
+
+            Category cat = categoryMap.get(product.getProductCategory());
+            response.setProductCategory(cat);
+
+            return response;
+        }).collect(Collectors.toList());
+
         long total = mongoTemplate.count(query, Product.class);
 
         return ProductGetAllResponse.builder()
                 .total((int) total)
                 .products(products)
                 .build();
+    }
+
+    public List<ProductGetDetailsResponse> getRecommendedProducts(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NON_EXISTED));
+
+        List<OrderProduct> purchasedProducts = orderRepository.findByUserId(userId).stream()
+                .flatMap(order -> order.getProducts().stream())
+                .toList();
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("user_id", user.getId());
+
+        List<Map<String, String>> searchHistory = Optional.ofNullable(user.getSearchhistory())
+                .orElse(Collections.emptyList())
+                .stream()
+                .map(sh -> Map.of("keyword", sh.getMessage()))
+                .collect(Collectors.toList());
+        body.put("search_history", searchHistory);
+
+        List<Map<String, String>> purchased = purchasedProducts.stream()
+                .map(p -> {
+                    Map<String, String> map = new HashMap<>();
+                    map.put("product_id", p.getProductId());
+                    map.put("category", p.getCategoryId());
+
+                    Product prod = productRepository.findById(p.getProductId()).orElse(null);
+                    if (prod != null) {
+                        map.put("title", prod.getProductTitle() != null ? prod.getProductTitle() : "");
+                        map.put("brand", prod.getProductBrand() != null ? prod.getProductBrand() : "");
+                        map.put("description", prod.getProductDescription() != null ? prod.getProductDescription() : "");
+                    } else {
+                        map.put("title", "");
+                        map.put("brand", "");
+                        map.put("description", "");
+                    }
+
+                    if (p.getCategoryId() != null) {
+                        categoryRepository.findById(p.getCategoryId()).ifPresent(category -> {
+                            map.put("category_type", category.getCategoryType() != null ? category.getCategoryType() : "");
+                        });
+                    } else {
+                        map.put("category_type", "");
+                    }
+
+                    return map;
+                }).collect(Collectors.toList());
+
+        body.put("purchased_products", purchased);
+
+        System.out.println("User ID: " + body.get("user_id"));
+        System.out.println("Search History: " + body.get("search_history"));
+        System.out.println("Purchased Products: " + body.get("purchased_products"));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<Map> response = restTemplate.postForEntity(PYTHON_API_URL, request, Map.class);
+
+        if (response.getStatusCode() == HttpStatus.OK) {
+            Map respBody = response.getBody();
+            if (respBody != null && respBody.containsKey("recommended_product_ids")) {
+                List<String> recommendedIds = (List<String>) respBody.get("recommended_product_ids");
+
+                return recommendedIds.stream()
+                        .map(this::getDetailsProduct)
+                        .collect(Collectors.toList());
+            }
+        }
+
+        return Collections.emptyList();
     }
 
     private Map<String, List<String>> uploadImages(Product product, MultipartHttpServletRequest request) {
@@ -325,7 +429,7 @@ public class ProductService {
         }
 
         // Gán ảnh chính cho sản phẩm
-        product.setProduct_img(filesMap.get("product_img").get(0));
+        product.setProductImg(filesMap.get("product_img").get(0));
 
         // Gán ảnh cho từng màu
         List<Color> colors = product.getColors();
@@ -339,14 +443,14 @@ public class ProductService {
             if (colorMainImgs == null || colorMainImgs.isEmpty()) {
                 throw new AppException(ErrorCode.COLOR_MAIN_IMG_REQUIRED);
             }
-            img.setImg_main(filesMap.get(colorMainKey).get(0));
+            img.setImgMain(filesMap.get(colorMainKey).get(0));
 
             // Gán các ảnh phụ cho màu
             String colorSubsKey = "color_img_" + i + "_subs";
             if (filesMap.get(colorSubsKey) != null) {
-                img.setImg_subs(filesMap.get(colorSubsKey));
+                img.setImgSubs(filesMap.get(colorSubsKey));
             } else {
-                img.setImg_subs(new ArrayList<>());
+                img.setImgSubs(new ArrayList<>());
             }
 
             color.setImgs(img);
@@ -356,7 +460,7 @@ public class ProductService {
     private void updateProductImages(Product product, Map<String, List<String>> filesMap) {
         // Cập nhật ảnh chính sản phẩm nếu có
         if(filesMap.containsKey("product_img") && !filesMap.get("product_img").isEmpty()) {
-            product.setProduct_img(filesMap.get("product_img").get(0));
+            product.setProductImg(filesMap.get("product_img").get(0));
         }
 
         List<Color> colors = product.getColors();
@@ -369,12 +473,12 @@ public class ProductService {
             Color.Img img = color.getImgs();
             String colorMainKey = "color_img_" + i + "_main";
             if(filesMap.containsKey(colorMainKey) && !filesMap.get(colorMainKey).isEmpty()) {
-                img.setImg_main(filesMap.get(colorMainKey).get(0));
+                img.setImgMain(filesMap.get(colorMainKey).get(0));
             }
 
             String colorSubsKey = "color_img_" + i + "_subs";
             if(filesMap.containsKey(colorSubsKey) && !filesMap.get(colorSubsKey).isEmpty()) {
-                img.setImg_subs(filesMap.get(colorSubsKey));
+                img.setImgSubs(filesMap.get(colorSubsKey));
             }
         }
     }

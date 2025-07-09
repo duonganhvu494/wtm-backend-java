@@ -21,10 +21,8 @@ import java.util.List;
 public class Cart {
     @Id
     private String id;
-
     private String userId;
-
-    private List<CartItem> cartItems;
+    private List<CartItem> products;
 
     @CreatedDate
     private Date createdAt;

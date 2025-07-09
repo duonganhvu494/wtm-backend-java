@@ -8,6 +8,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,23 +21,23 @@ public class FeedbackController {
 
     FeedbackService feedbackService;
 
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping(path = "/create", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<FeedbackResponse> createFeedback( @ModelAttribute FeedbackCreateRequest request) {
         return ApiResponse.<FeedbackResponse>builder()
+                .EC(0)
+                .EM("Tạo feedback thành công")
                 .result(feedbackService.createFeedback(request))
                 .build();
     }
 
-    @GetMapping("/product/{productId}")
+    @GetMapping("/get-all/{productId}")
     public ApiResponse<List<FeedbackResponse>> getAllFeedbacks(@PathVariable String productId) {
         return ApiResponse.<List<FeedbackResponse>>builder()
+                .EC(0)
+                .EM("Lấy danh sách feedback thành công")
                 .result(feedbackService.getFeedbacks(productId))
                 .build();
     }
 
-    @DeleteMapping("/{feedbackId}")
-    public ApiResponse<Void> deleteFeedback(@PathVariable String feedbackId) {
-        feedbackService.deleteFeedback(feedbackId);
-        return ApiResponse.<Void>builder().result(null).build();
-    }
 }

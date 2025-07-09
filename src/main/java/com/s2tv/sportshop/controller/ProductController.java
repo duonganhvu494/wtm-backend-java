@@ -4,12 +4,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.s2tv.sportshop.dto.request.ProductCreateRequest;
 import com.s2tv.sportshop.dto.request.ProductGetAllRequest;
 import com.s2tv.sportshop.dto.request.ProductUpdateRequest;
-import com.s2tv.sportshop.dto.response.ApiResponse;
-import com.s2tv.sportshop.dto.response.ProductCreateResponse;
-import com.s2tv.sportshop.dto.response.ProductGetAllResponse;
-import com.s2tv.sportshop.dto.response.ProductUpdateResponse;
+import com.s2tv.sportshop.dto.response.*;
 import com.s2tv.sportshop.model.Product;
 import com.s2tv.sportshop.service.ProductService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -17,12 +15,13 @@ import org.springframework.web.multipart.MultipartHttpServletRequest;
 
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/product")
+@RequiredArgsConstructor
 public class ProductController {
-
-    @Autowired
-    private ProductService productService;
+    private final ProductService productService;
 
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/create")
@@ -67,8 +66,8 @@ public class ProductController {
     }
 
     @GetMapping("/get-details/{id}")
-    public ApiResponse<Product> getDetailsProduct(@PathVariable("id") String productId) {
-        return ApiResponse.<Product>builder()
+    public ApiResponse<ProductGetDetailsResponse> getDetailsProduct(@PathVariable("id") String productId) {
+        return ApiResponse.<ProductGetDetailsResponse>builder()
                 .EC(0)
                 .EM("Lấy chi tiết sản phẩm thành công")
                 .result(productService.getDetailsProduct(productId))
@@ -81,6 +80,17 @@ public class ProductController {
                 .EC(0)
                 .EM("Lấy danh sách sản phẩm thành công")
                 .result(productService.getAllProduct(request))
+                .build();
+    }
+
+    @GetMapping("/recommend/{userId}")
+    public ApiResponse<List<ProductGetDetailsResponse>> getRecommendedProducts(@PathVariable String userId) {
+        List<ProductGetDetailsResponse> recommendedProducts = productService.getRecommendedProducts(userId);
+
+        return ApiResponse.<List<ProductGetDetailsResponse>>builder()
+                .EC(0)
+                .EM("Lấy sản phẩm gợi ý thành công")
+                .result(recommendedProducts)
                 .build();
     }
 }
